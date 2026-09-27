@@ -1,45 +1,147 @@
-Overview
-========
+# 📈 Pipeline de Monitoramento de Ações da B3
 
-Welcome to Astronomer! This project was generated after you ran 'astro dev init' using the Astronomer CLI. This readme describes the contents of the project, as well as how to run Apache Airflow on your local machine.
+Pipeline de dados que extrai cotações de ações da B3 de hora em hora, valida a qualidade dos dados, armazena o histórico em PostgreSQL e gera um gráfico atualizado automaticamente — orquestrado com Apache Airflow.
 
-Project Contents
-================
+Projeto pessoal construído para praticar engenharia de dados na prática: orquestração, tratamento de erros rastreável e decisões de design de pipeline, não apenas extração simples de API.
 
-Your Astro project contains the following files and folders:
+---
 
-- dags: This folder contains the Python files for your Airflow DAGs. By default, this directory includes one example DAG:
-    - `example_astronauts`: This DAG shows a simple ETL pipeline example that queries the list of astronauts currently in space from the Open Notify API and prints a statement for each astronaut. The DAG uses the TaskFlow API to define tasks in Python, and dynamic task mapping to dynamically print a statement for each astronaut. For more on how this DAG works, see our [Getting started tutorial](https://www.astronomer.io/docs/learn/get-started-with-airflow).
-- Dockerfile: This file contains a versioned Astro Runtime Docker image that provides a differentiated Airflow experience. If you want to execute other commands or overrides at runtime, specify them here.
-- include: This folder contains any additional files that you want to include as part of your project. It is empty by default.
-- packages.txt: Install OS-level packages needed for your project by adding them to this file. It is empty by default.
-- requirements.txt: Install Python packages needed for your project by adding them to this file. It is empty by default.
-- plugins: Add custom or community plugins for your project to this file. It is empty by default.
-- airflow_settings.yaml: Use this local-only file to specify Airflow Connections, Variables, and Pools instead of entering them in the Airflow UI as you develop DAGs in this project.
+## 🧱 Arquitetura
 
-Deploy Your Project Locally
-===========================
+```
+Trigger horário (Airflow)
+        │
+        ▼
+┌─────────────────┐
+│  busca_api.py    │  Extrai cotações de 3 tickers em uma única chamada à brapi.dev
+└────────┬─────────┘
+         ▼
+┌─────────────────┐
+│  validacao.py    │  Separa dados válidos de dados incompletos
+└────────┬─────────┘
+         ├──► ações válidas ──────┐
+         └──► erros encontrados ──┤
+                                  ▼
+                       ┌─────────────────────┐
+                       │  carga_postgres.py   │  Grava no Postgres (tabela acoes / tabela_erros)
+                       └──────────┬───────────┘
+                                  ▼
+                       ┌─────────────────────┐
+                       │  gerar_grafico.py    │  Lê o histórico e atualiza o gráfico
+                       └─────────────────────┘
+```
 
-Start Airflow on your local machine by running 'astro dev start'.
+Cada etapa vive em um arquivo próprio dentro de `include/`, com responsabilidade única. A DAG (`dags/`) apenas orquestra a ordem de execução — a lógica de negócio fica isolada e testável separadamente.
 
-This command will spin up five Docker containers on your machine, each for a different Airflow component:
+---
 
-- Postgres: Airflow's Metadata Database
-- Scheduler: The Airflow component responsible for monitoring and triggering tasks
-- DAG Processor: The Airflow component responsible for parsing DAGs
-- API Server: The Airflow component responsible for serving the Airflow UI and API
-- Triggerer: The Airflow component responsible for triggering deferred tasks
+## ⚙️ Stack
 
-When all five containers are ready the command will open the browser to the Airflow UI at http://localhost:8080/. You should also be able to access your Postgres Database at 'localhost:5432/postgres' with username 'postgres' and password 'postgres'.
+| Camada | Tecnologia |
+|---|---|
+| Orquestração | Apache Airflow (via Astro CLI) |
+| Linguagem | Python |
+| Banco de dados | PostgreSQL |
+| Fonte de dados | [brapi.dev](https://brapi.dev) (API pública B3) |
+| Ambiente | Docker |
 
-Note: If you already have either of the above ports allocated, you can either [stop your existing Docker containers or change the port](https://www.astronomer.io/docs/astro/cli/troubleshoot-locally#ports-are-not-available-for-my-local-airflow-webserver).
+---
 
-Deploy Your Project to Astronomer
-=================================
+## 📊 Ativos monitorados
 
-If you have an Astronomer account, pushing code to a Deployment on Astronomer is simple. For deploying instructions, refer to Astronomer documentation: https://www.astronomer.io/docs/astro/deploy-code/
+`PETR4` · `VALE3` · `MGLU3` — coleta a cada 1 hora.
 
-Contact
-=======
+---
 
-The Astronomer CLI is maintained with love by the Astronomer team. To report a bug or suggest a change, reach out to our support.
+## ✅ Regra de validação de dados
+
+Nem todo campo ausente tem o mesmo peso. Os dados são avaliados em dois níveis:
+
+- **Campos indispensáveis** (`symbol`, `regularMarketPrice`): se estiverem ausentes, a ação inteira é descartada e um erro é registrado. Sem eles, o registro não tem utilidade analítica.
+- **Campos desejáveis** (nome da empresa, moeda, máxima/mínima do dia, variação): se ausentes, o campo entra como `NULL`, mas o restante do dado válido não é perdido.
+
+Essa abordagem evita dois extremos: inserir dados incompletos demais para serem confiáveis, ou descartar um registro inteiro por causa de um único campo secundário.
+
+---
+
+## 🚨 Tratamento de erros
+
+Toda falha — seja na chamada à API ou na validação dos dados — gera um registro em uma tabela de erros dedicada, com:
+
+- Código do erro
+- Mensagem descritiva
+- Task/etapa de origem
+- Horário da ocorrência
+
+Isso garante rastreabilidade completa: nenhuma falha é "silenciosa".
+
+---
+
+## 🗄️ Modelo de dados
+
+**`acoes`**
+
+| Coluna | Tipo |
+|---|---|
+| id | SERIAL PRIMARY KEY |
+| symbol_empresa | VARCHAR(10) |
+| nome_da_empresa | VARCHAR(50) |
+| moeda | VARCHAR(4) |
+| preco_regular | DECIMAL(7,2) |
+| preco_mais_alto | DECIMAL(7,2) |
+| preco_mais_baixo | DECIMAL(7,2) |
+| variacao_de_preco | DECIMAL(7,2) |
+| percentual_variacao_de_preco | DECIMAL(7,2) |
+| hora_coleta | TIMESTAMP |
+
+Restrição `UNIQUE (symbol_empresa, hora_coleta)` garante idempotência — a mesma ação não é inserida duas vezes na mesma hora.
+
+**`tabela_erros`**
+
+| Coluna | Tipo |
+|---|---|
+| id | SERIAL PRIMARY KEY |
+| codigo_erro | VARCHAR(5) |
+| mensagem_erro | TEXT |
+| task_origem | VARCHAR(30) |
+| hora_erro | TIMESTAMP |
+
+---
+
+## 📂 Estrutura do projeto
+
+```
+├── dags/                    # Definição da DAG (orquestração)
+├── include/
+│   ├── busca_api.py         # Extração — chamada à brapi.dev
+│   ├── validacao.py         # Validação e organização dos dados
+│   ├── carga_postgres.py    # Inserção no PostgreSQL
+│   └── gerar_grafico.py     # Geração do gráfico
+├── codigo_tabela_acoes.sql
+├── codigo_tabela_erro.sql
+├── requirements.txt
+├── .env                     # Credenciais (não versionado)
+└── README.md
+```
+
+---
+
+## 🚧 Status do projeto
+
+- [x] Modelagem do banco de dados
+- [x] Extração da API
+- [x] Validação em dois níveis
+- [ ] Carga no PostgreSQL
+- [ ] Geração do gráfico
+- [ ] DAG final orquestrando o pipeline completo
+
+Projeto em desenvolvimento ativo.
+
+---
+👩‍💻 Autora
+
+Eva Gabriela — Graduada em Tecnologia em Banco de Dados (PUC Minas)
+
+## 👩‍💻 Autora
+
+**Eva Gabriela** — Graduada em Tecnologia em Banco de Dados (PUC Minas)
