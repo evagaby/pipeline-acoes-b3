@@ -1,0 +1,40 @@
+estrutura tabela acoes 
+
+id
+symbol_empresa, na api => "symbol": "PETR4"
+nome_da_empresa, na api => "longName": "Petróleo Brasileiro S.A. - Petrobras"
+moeda, na api => "currency": "BRL"
+preco_regular, na api => "regularMarketPrice": 38.50
+preco_mais_alto, na api => "regularMarketDayHigh": 39.00
+preco_mais_baixo, na api =>  "regularMarketDayLow": 38.20
+variacao_de_preco, na api => "regularMarketChange": 0.30,
+percemtual_variacao_de_preco, na api => "regularMarketChangePercent": 0.78
+hora_coleta, dado coletado internamente no banco de dados na ececução do pipeline 
+
+Essa primeira tabela ela guarda as informações das açoes ue irei coletar no projeto e ela foi feita baseada nas informaçoes
+disponibilizadas pela api. o código em SQL ficou dessa forma:
+
+	1 - CREATE TABLE acoes (
+	2 - 	id  SERIAL PRIMARY KEY ,
+	3 -	symbol_empresa VARCHAR(10),
+	4 -	nome_da_empresa VARCHAR(50),
+	5 -	moeda VARCHAR (4),
+	6 -	preco_regular DECIMAL(7,2),
+	7 -	preco_mais_alto DECIMAL(7,2),
+	8 -	preco_mais_baixo DECIMAL(7,2),
+	9 -	variacao_de_preco DECIMAL(7,2),
+	10 -	perceNtual_variacao_de_preco DECIMAL(7,2),
+	11 -	hora_coleta TIMESTAMP,
+	13 -	UNIQUE (symbol_empresa, hora_coleta)
+		);
+constatei que não poderia haver mais de uma coleta de uma mesma ação no mesmo horario, por isso, na linha 11 adicionei a função UNIQUE que
+impede haja uma coleta de uma mesma açao 2x no mesmo horario.
+O tipo decimal, permite até 7 numeros inteiros e 2 casas decimais, foi executado dessa forma por preocauções. a coluna moeda, recebe varchar
+pois é a sigla da moeda.
+
+tabela erros
+codigo_de_erro
+mensagem_erro
+task_origem 
+hora_erro
+
