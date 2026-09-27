@@ -138,9 +138,6 @@ Restrição `UNIQUE (symbol_empresa, hora_coleta)` garante idempotência — a m
 Projeto em desenvolvimento ativo.
 
 ---
-👩‍💻 Autora
-
-Eva Gabriela — Graduada em Tecnologia em Banco de Dados (PUC Minas)
 
 ## 👩‍💻 Autora
 
